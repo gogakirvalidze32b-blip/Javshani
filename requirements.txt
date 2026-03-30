@@ -1,0 +1,4 @@
+requests
+pyTelegramBotAPI
+playwright
+playwright-stealth

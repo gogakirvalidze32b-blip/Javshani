@@ -1,0 +1,10 @@
+2026/03/30-20:26:06.918 26d4 Creating DB C:\Users\For Home\Desktop\Javshani-main\user_data\Default\IndexedDB\https_my.sa.gov.ge_0.indexeddb.leveldb since it was missing.
+2026/03/30-20:26:06.931 26d4 Reusing MANIFEST C:\Users\For Home\Desktop\Javshani-main\user_data\Default\IndexedDB\https_my.sa.gov.ge_0.indexeddb.leveldb/MANIFEST-000001
+2026/03/30-20:26:06.939 3d80 Level-0 table #5: started
+2026/03/30-20:26:06.950 3d80 Level-0 table #5: 658 bytes OK
+2026/03/30-20:26:06.952 3d80 Delete type=0 #3
+2026/03/30-20:26:06.952 1f0c Manual compaction at level-0 from '\x00\x01\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x02\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/03/30-20:26:08.135 3d80 Level-0 table #7: started
+2026/03/30-20:26:08.150 3d80 Level-0 table #7: 654 bytes OK
+2026/03/30-20:26:08.152 3d80 Delete type=0 #4
+2026/03/30-20:26:08.153 1f0c Manual compaction at level-0 from '\x00\x02\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x03\x00\x00\x00' @ 0 : 0; will stop at (end)

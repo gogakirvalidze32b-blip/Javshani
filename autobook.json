@@ -1,0 +1,10 @@
+{
+    "enabled": true,
+    "target_user_id": "8737088771",
+    "target_cities": [
+        "რუსთავი",
+        "თელავი"
+    ],
+    "button_text": "დაჯავშნა",
+    "stop_after_booking": true
+}
