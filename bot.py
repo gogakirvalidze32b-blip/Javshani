@@ -14,6 +14,7 @@ NOTIFIED_FILE = "notified.json"  # ← აქ
 bot = telebot.TeleBot(TOKEN)
 
 admin_broadcast_state = {}
+search_enabled = True
 
 CITIES_LIST = [
     "რუსთავი", "გორი", "ქუთაისი", "ბათუმი", "ფოთი",
@@ -452,8 +453,10 @@ def manage_autobook(message):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @bot.message_handler(commands=['startbot'])
 def startbot_cmd(message):
+    global search_enabled
     if message.chat.id != ADMIN_ID:
         return
+    search_enabled = True
 
     data = load_data()
 
@@ -505,6 +508,20 @@ def startbot_cmd(message):
         f"✅ გაიგზავნა: <code>{sent}</code>",
         parse_mode="HTML"
     )
+
+@bot.message_handler(commands=['stopbot'])
+def stopbot_cmd(message):
+    global search_enabled
+    if message.chat.id != ADMIN_ID:
+        return
+    search_enabled = False
+    bot.send_message(
+        ADMIN_ID,
+        "🛑 <b>ძიება გაჩერებულია.</b>\n\n"
+        "ბოტი დროებით აღარ გააგზავნის ძიების საათობრივ შეტყობინებებს.\n"
+        "გასააქტიურებლად: <code>/startbot</code>",
+        parse_mode="HTML"
+    )
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ყოველ საათში შეტყობინება
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -513,6 +530,8 @@ import threading
 def hourly_reminder():
     while True:
         time.sleep(3600)  # 1 საათი
+        if not search_enabled:
+            continue
         data = load_data()
         if not data:
             continue

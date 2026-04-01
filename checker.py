@@ -54,9 +54,13 @@ PROXIES = [
 # Keep-alive ტაიმერი (12 წუთი)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 last_agree_click_time = 0
-AGREE_INTERVAL_SECONDS = 12 * 60
+AGREE_INTERVAL_SECONDS = int(os.getenv("AGREE_INTERVAL_SECONDS", str(15 * 60)) or (15 * 60))
 NAV_TIMEOUT_MS = 60000
 NAV_RETRIES = 2
+NAV_EVERY_N_CYCLES = int(os.getenv("NAV_EVERY_N_CYCLES", "8") or 8)
+KEEPALIVE_ENABLED = os.getenv("KEEPALIVE_ENABLED", "1") == "1"
+LOGOUT_BACKOFF_SECONDS_MIN = int(os.getenv("LOGOUT_BACKOFF_SECONDS_MIN", "45") or 45)
+LOGOUT_BACKOFF_SECONDS_MAX = int(os.getenv("LOGOUT_BACKOFF_SECONDS_MAX", "120") or 120)
 
 
 async def sleep_between(min_s, max_s):
@@ -490,13 +494,15 @@ async def relaunch_browser_context(playwright, user_data_dir):
     headless = is_server
     print(f"🖥 რეჟიმი: {'სერვერი — headless=True' if headless else 'PC — headless=False (ბრაუზერი ჩანს)'}")
 
-    if USE_PROXY_ENV in ("1", "true", "yes", "on"):
-        use_proxy = True
-    elif USE_PROXY_ENV in ("0", "false", "no", "off"):
+    # უსაფრთხო ნაგულისხმევი:
+    # - Windows ლოკალზე: proxy ყოველთვის OFF (თუ ძალიან არ გინდა ჩართო)
+    # - სერვერზე: proxy მხოლოდ მაშინ თუ env-ით ჩართავ
+    if os.name == "nt":
         use_proxy = False
+    elif USE_PROXY_ENV in ("1", "true", "yes", "on"):
+        use_proxy = True
     else:
-        # ნაგულისხმევი: სერვერზე ჩართული, ლოკალზე გამორთული
-        use_proxy = is_server
+        use_proxy = False
 
     proxy = random.choice(PROXIES) if use_proxy else None
     print(f"🔀 Proxy: {proxy['server']}" if proxy else "🔀 Proxy: OFF (direct connection)")
@@ -745,13 +751,16 @@ async def run_checker():
                     continue
 
                 # ━━━ 1. Keep-alive (ყოველ 12 წუთში) ━━━
-                keepalive_triggered, keepalive_logged_out = await keepalive_agree_click(page)
-                if keepalive_logged_out:
-                    await wait_for_manual_login(page)
-                    need_navigation = True
-                    continue
-                if keepalive_triggered:
-                    need_navigation = True
+                if KEEPALIVE_ENABLED:
+                    keepalive_triggered, keepalive_logged_out = await keepalive_agree_click(page)
+                    if keepalive_logged_out:
+                        # logout-ისას ნუ “ვაწვებით” — ცოტა ხანი დავაცადოთ და მერე ხელით login
+                        await asyncio.sleep(random.uniform(LOGOUT_BACKOFF_SECONDS_MIN, LOGOUT_BACKOFF_SECONDS_MAX))
+                        await wait_for_manual_login(page)
+                        need_navigation = True
+                        continue
+                    if keepalive_triggered:
+                        need_navigation = True
 
                 # ━━━ 2. Config წამოღება ━━━
                 autobook_cfg = get_autobook_config()
@@ -786,6 +795,8 @@ async def run_checker():
                 cycle_count += 1
 
                 if await confirm_logged_out(page):
+                    # logout-ზე სწრაფი retry ხშირად აუარესებს მდგომარეობას
+                    await asyncio.sleep(random.uniform(LOGOUT_BACKOFF_SECONDS_MIN, LOGOUT_BACKOFF_SECONDS_MAX))
                     await wait_for_manual_login(page)
                     need_navigation = True
                     continue
@@ -843,7 +854,7 @@ async def run_checker():
                         send_log_msg(msg)
                         need_navigation = True
                         break
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.4)
                     option = page.locator(f'mat-option span.mat-option-text:has-text("{city}")')
                     if not await option.is_visible():
                         await close_overlays(page)
@@ -852,7 +863,7 @@ async def run_checker():
                     if not clicked_option:
                         await close_overlays(page)
                         continue
-                    await asyncio.sleep(2.5)
+                    await asyncio.sleep(1.2)
 
                     available_days = page.locator('mat-calendar-body-cell[aria-disabled="false"]')
                     if await available_days.count() > 0:
@@ -860,7 +871,7 @@ async def run_checker():
                         day_el = available_days.first
                         date_val = await day_el.get_attribute("aria-label")
                         await human_move_and_click(page, day_el)
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(0.9)
 
                         slots = page.locator('button:has-text(":")')
                         times = [await slots.nth(j).inner_text() for j in range(await slots.count())]
@@ -897,7 +908,7 @@ async def run_checker():
                 send_status_report(list(all_requested), list(current_available_cities))
                 send_user_reminder()
 
-                wait = FIXED_CYCLE_WAIT_SECONDS if EXACT_TIMING else random.randint(25, 40)
+                wait = FIXED_CYCLE_WAIT_SECONDS if EXACT_TIMING else random.randint(30, 55)
                 next_keepalive = max(0, int(AGREE_INTERVAL_SECONDS - (time.time() - last_agree_click_time)))
                 cycle_msg = (
                     f"⌛ ციკლი #{cycle_count} დასრულდა. "
@@ -907,10 +918,8 @@ async def run_checker():
                 print(cycle_msg + "\n")
                 send_log_msg(cycle_msg)
 
-                if cycle_count % 3 == 0:
-                    need_navigation = True
-                else:
-                    need_navigation = False
+                # ნაკლები ნავიგაცია = ნაკლები logout/ფლაკი
+                need_navigation = (cycle_count % max(4, NAV_EVERY_N_CYCLES) == 0)
 
                 await asyncio.sleep(wait)
 
