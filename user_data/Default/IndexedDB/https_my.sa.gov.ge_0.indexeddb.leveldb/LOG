@@ -1,31 +1,25 @@
-2026/04/01-18:05:50.370 540 Creating DB C:\Users\For Home\Desktop\Javshani-main\user_data\Default\IndexedDB\https_my.sa.gov.ge_0.indexeddb.leveldb since it was missing.
-2026/04/01-18:05:50.383 540 Reusing MANIFEST C:\Users\For Home\Desktop\Javshani-main\user_data\Default\IndexedDB\https_my.sa.gov.ge_0.indexeddb.leveldb/MANIFEST-000001
-2026/04/01-18:05:50.427 1178 Level-0 table #5: started
-2026/04/01-18:05:50.430 1178 Level-0 table #5: 658 bytes OK
-2026/04/01-18:05:50.431 1178 Delete type=0 #3
-2026/04/01-18:05:50.441 2f4c Manual compaction at level-0 from '\x00\x01\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x02\x00\x00\x00' @ 0 : 0; will stop at (end)
-2026/04/01-18:05:50.492 1178 Level-0 table #7: started
-2026/04/01-18:05:50.507 1178 Level-0 table #7: 654 bytes OK
-2026/04/01-18:05:50.509 1178 Delete type=0 #4
-2026/04/01-18:05:50.511 2f4c Manual compaction at level-0 from '\x00\x02\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x03\x00\x00\x00' @ 0 : 0; will stop at (end)
-2026/04/01-18:13:43.334 1178 Level-0 table #9: started
-2026/04/01-18:13:43.346 1178 Level-0 table #9: 1822 bytes OK
-2026/04/01-18:13:43.348 1178 Delete type=0 #6
-2026/04/01-18:13:43.348 1178 Manual compaction at level-0 from '\x00\x04\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x05\x00\x00\x00' @ 0 : 0; will stop at '\x00\x04\x00\x00\x05' @ 97 : 1
-2026/04/01-18:13:43.348 1178 Compacting 1@0 + 1@1 files
-2026/04/01-18:13:43.363 1178 Generated table #10@0: 44 keys, 1444 bytes
-2026/04/01-18:13:43.363 1178 Compacted 1@0 + 1@1 files => 1444 bytes
-2026/04/01-18:13:43.364 1178 compacted to: files[ 0 1 1 0 0 0 0 ]
-2026/04/01-18:13:43.365 1178 Delete type=2 #9
-2026/04/01-18:13:43.365 2f4c Manual compaction at level-0 from '\x00\x04\x00\x00\x05' @ 97 : 1 .. '\x00\x05\x00\x00\x00' @ 0 : 0; will stop at (end)
-2026/04/01-18:13:43.366 2f4c Level-0 table #12: started
-2026/04/01-18:13:43.378 2f4c Level-0 table #12: 663 bytes OK
-2026/04/01-18:13:43.379 2f4c Delete type=2 #7
-2026/04/01-18:13:43.379 2f4c Delete type=0 #8
-2026/04/01-18:13:43.380 2f4c Manual compaction at level-0 from '\x00\x05\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x06\x00\x00\x00' @ 0 : 0; will stop at '\x00\x05\x00\x00\x05' @ 114 : 1
-2026/04/01-18:13:43.380 2f4c Compacting 1@0 + 1@1 files
-2026/04/01-18:13:43.391 2f4c Generated table #13@0: 48 keys, 1473 bytes
-2026/04/01-18:13:43.391 2f4c Compacted 1@0 + 1@1 files => 1473 bytes
-2026/04/01-18:13:43.392 2f4c compacted to: files[ 0 1 1 0 0 0 0 ]
-2026/04/01-18:13:43.392 2f4c Delete type=2 #12
-2026/04/01-18:13:43.393 2f4c Manual compaction at level-0 from '\x00\x05\x00\x00\x05' @ 114 : 1 .. '\x00\x06\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/04/02-01:48:25.677 2e2c Reusing MANIFEST C:\Users\For Home\Desktop\Javshani-main\user_data\Default\IndexedDB\https_my.sa.gov.ge_0.indexeddb.leveldb/MANIFEST-000001
+2026/04/02-01:48:25.678 2e2c Recovering log #324
+2026/04/02-01:48:25.678 2e2c Reusing old log C:\Users\For Home\Desktop\Javshani-main\user_data\Default\IndexedDB\https_my.sa.gov.ge_0.indexeddb.leveldb/000324.log 
+2026/04/02-01:48:25.679 2e2c Delete type=2 #323
+2026/04/02-01:48:25.753 1370 Level-0 table #329: started
+2026/04/02-01:48:25.769 1370 Level-0 table #329: 649 bytes OK
+2026/04/02-01:48:25.770 1370 Delete type=0 #324
+2026/04/02-01:48:25.771 1370 Manual compaction at level-0 from '\x00U\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00V\x00\x00\x00' @ 0 : 0; will stop at '\x00U\x00\x00\x05' @ 2117 : 1
+2026/04/02-01:48:25.771 1370 Compacting 1@0 + 1@1 files
+2026/04/02-01:48:25.788 1370 Generated table #330@0: 18 keys, 1225 bytes
+2026/04/02-01:48:25.788 1370 Compacted 1@0 + 1@1 files => 1225 bytes
+2026/04/02-01:48:25.789 1370 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/04/02-01:48:25.791 1370 Delete type=2 #329
+2026/04/02-01:48:25.791 1370 Manual compaction at level-0 from '\x00U\x00\x00\x05' @ 2117 : 1 .. '\x00V\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/04/02-01:48:25.792 1370 Level-0 table #332: started
+2026/04/02-01:48:25.802 1370 Level-0 table #332: 653 bytes OK
+2026/04/02-01:48:25.804 1370 Delete type=2 #326
+2026/04/02-01:48:25.804 1370 Delete type=0 #328
+2026/04/02-01:48:25.805 1370 Manual compaction at level-0 from '\x00V\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00W\x00\x00\x00' @ 0 : 0; will stop at '\x00V\x00\x00\x05' @ 2134 : 1
+2026/04/02-01:48:25.805 1370 Compacting 1@0 + 1@1 files
+2026/04/02-01:48:25.818 1370 Generated table #333@0: 18 keys, 1224 bytes
+2026/04/02-01:48:25.818 1370 Compacted 1@0 + 1@1 files => 1224 bytes
+2026/04/02-01:48:25.819 1370 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/04/02-01:48:25.819 1370 Delete type=2 #332
+2026/04/02-01:48:25.820 1370 Manual compaction at level-0 from '\x00V\x00\x00\x05' @ 2134 : 1 .. '\x00W\x00\x00\x00' @ 0 : 0; will stop at (end)

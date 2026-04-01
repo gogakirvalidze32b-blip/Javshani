@@ -54,7 +54,7 @@ PROXIES = [
 # Keep-alive ტაიმერი (12 წუთი)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 last_agree_click_time = 0
-AGREE_INTERVAL_SECONDS = int(os.getenv("AGREE_INTERVAL_SECONDS", str(15 * 60)) or (15 * 60))
+AGREE_INTERVAL_SECONDS = 9 * 60 # ზუსტად 9 წუთი
 NAV_TIMEOUT_MS = 60000
 NAV_RETRIES = 2
 NAV_EVERY_N_CYCLES = int(os.getenv("NAV_EVERY_N_CYCLES", "8") or 8)
@@ -73,16 +73,21 @@ async def sleep_between(min_s, max_s):
 def safe_telegram_post(url, data, timeout=10, context="telegram"):
     try:
         resp = requests.post(url, data=data, timeout=timeout)
+        
+        # თუ მომხმარებელმა დაბლოკა ბოტი (403 Forbidden)
+        if resp.status_code == 403:
+            chat_id = data.get("chat_id")
+            # ადმინს არ ვშლით შემთხვევით
+            if chat_id and int(chat_id) != ADMIN_ID:
+                remove_user_from_file(chat_id)
+            return False
+
         if resp.status_code != 200:
-            print(f"⚠️ Telegram ({context}) HTTP {resp.status_code}: {resp.text[:200]}")
             return False
+            
         payload = resp.json()
-        if not payload.get("ok", False):
-            print(f"⚠️ Telegram ({context}) API error: {payload}")
-            return False
-        return True
-    except Exception as e:
-        print(f"⚠️ Telegram ({context}) შეცდომა: {e}")
+        return payload.get("ok", False)
+    except Exception:
         return False
 
 
@@ -124,32 +129,26 @@ async def safe_goto(page, url, wait_until="domcontentloaded", timeout=NAV_TIMEOU
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ადამიანური მოძრაობის ფუნქციები
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async def human_move_and_click(page, element):
+async def human_move_and_click(page, element, label="ელემენტი"):
     try:
-        try:
-            await page.evaluate("(el) => el.scrollIntoView({block: 'center'})", await element.element_handle())
-        except:
-            pass
-        await sleep_between(0.3, 0.6)
+        await element.scroll_into_view_if_needed()
+        await asyncio.sleep(0.5)
+        
         box = await element.bounding_box()
         if not box:
-            await element.click()
-            return
+            await element.click(); return
+
         target_x = box["x"] + box["width"] / 2
         target_y = box["y"] + box["height"] / 2
-        await page.mouse.move(target_x + random.uniform(-30, 30), target_y + random.uniform(-20, 20))
-        await sleep_between(0.1, 0.3)
-        await page.mouse.move(target_x, target_y, steps=random.randint(5, 10))
-        await sleep_between(0.1, 0.2)
-        await page.mouse.click(target_x, target_y)
-        print(f"🖱 კლიკი: ({int(target_x)}, {int(target_y)})")
-    except Exception as e:
-        print(f"⚠️ კლიკის შეცდომა: {e}")
-        try:
-            await element.click()
-        except:
-            pass
 
+        # მაუსის ნელი მოძრაობა (steps=25)
+        await page.mouse.move(target_x, target_y, steps=25)
+        await asyncio.sleep(0.2)
+        await page.mouse.click(target_x, target_y)
+        print(f"✅ დავაჭირე: {label}")
+    except:
+        try: await element.click()
+        except: pass
 
 async def close_overlays(page):
     # ღია dropdown/dialog ხშირად აბნევს შემდეგ კლიკებს
@@ -251,66 +250,86 @@ async def anti_bot_break(page):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # "ვეთანხმები" სქროლი + კლიკი
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async def scroll_to_bottom_and_agree(page):
+# 📜 წესების ბოლომდე სქროლი და დათანხმება
+async def handle_agreement(page):
     try:
-        # ჯერ ველოდებით რომ modal ნამდვილად გამოჩნდეს
-        await page.locator(".cdk-overlay-pane, mat-dialog-container").first.wait_for(state="visible", timeout=8000)
-        agree_btn = page.locator('button:has-text("ვეთანხმები"), text=ვეთანხმები').first
-        if not await agree_btn.is_visible(timeout=6000):
-            return False
+        modal = page.locator('mat-dialog-container, [role="dialog"], .mat-mdc-dialog-container').first
+        
+        try:
+            await modal.wait_for(state="visible", timeout=10000)
+        except:
+            print("ℹ️ წესების ფანჯარა არ ჩანს, ვაგრძელებ...")
+            return True
 
-        # რამდენიმე ცდით ვსქროლავთ modal-ს ბოლომდე და ვცდილობთ დაჭერას
-        for attempt in range(1, 6):
-            scrolled_to_bottom = await page.evaluate("""
-                () => {
-                    const selectors = [
-                        ".mat-mdc-dialog-content",
-                        ".mat-dialog-content",
-                        "mat-dialog-content",
-                        "div[appcustomscroll]",
-                        ".cdk-overlay-pane .mat-mdc-dialog-content",
-                        ".cdk-overlay-pane .mat-dialog-content",
-                        ".modal-body"
-                    ];
-                    let target = null;
-                    for (const sel of selectors) {
-                        const el = document.querySelector(sel);
-                        if (el && el.scrollHeight > el.clientHeight) {
-                            target = el;
-                            break;
-                        }
-                    }
-                    if (!target) return true;
-                    target.scrollTop = Math.min(target.scrollTop + Math.floor(target.clientHeight * 0.9), target.scrollHeight);
-                    return target.scrollTop + target.clientHeight >= target.scrollHeight - 6;
-                }
-            """)
+        print("📜 წესები გამოჩნდა. ვააქტიურებ ფანჯარას...")
+        box = await modal.bounding_box()
+        if box:
+            center_x = box["x"] + box["width"] / 2
+            center_y = box["y"] + box["height"] / 2
+            await page.mouse.move(center_x, center_y, steps=10)
+            await page.mouse.click(center_x, center_y) 
+            await asyncio.sleep(1)
 
-            try:
-                is_disabled = await agree_btn.evaluate(
-                    "el => el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true'"
-                )
-            except:
-                is_disabled = False
+            print("🖱 ვასქროლებ ბოლომდე...")
+            for _ in range(12):
+                await page.mouse.wheel(0, 500) 
+                await asyncio.sleep(0.2)
 
-            if (not is_disabled) and await agree_btn.is_visible(timeout=1500):
-                clicked = await robust_click(page, agree_btn, label="'ვეთანხმები'")
-                if clicked:
-                    await sleep_between(1.0, 1.8)
-                    print("✅ 'ვეთანხმები' დაჭერილია.")
+        # ❗ იძულებითი ლოდინი სქროლის მერე (რომ საიტმა "დაიჯეროს")
+        await page.keyboard.press("End")
+        await asyncio.sleep(2) 
+
+        agree_btn = page.locator('button:has-text("ვეთანხმები")').first
+        
+        print("⏳ ველოდები ღილაკის გააქტიურებას...")
+        for i in range(15):
+            is_disabled = await agree_btn.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
+            
+            if not is_disabled and await agree_btn.is_visible():
+                print(f"✅ ღილაკი მზადაა (ცდა {i}). ვაჭერ!")
+                await human_move_and_click(page, agree_btn, "ვეთანხმები")
+                await asyncio.sleep(3)
+                # ვამოწმებთ, მართლა გაქრა თუ არა ფანჯარა
+                if not await modal.is_visible():
                     return True
-
-            if not scrolled_to_bottom:
-                await page.mouse.wheel(0, 350)
-            await asyncio.sleep(0.45 + (attempt * 0.08))
-
-        print("ℹ️ 'ვეთანხმები' ჯერ disabled/უხილავია პირველ ცდებზე.")
+            
+            await asyncio.sleep(0.5)
+            if i % 4 == 0: await page.keyboard.press("End") # კიდევ ერთხელ დავაწვეთ End-ს
+            
         return False
     except Exception as e:
-        print(f"⚠️ scroll_to_bottom_and_agree შეცდომა: {e}")
+        print(f"⚠️ შეცდომა handle_agreement-ში: {e}")
         return False
 
-
+# ⚙️ კატეგორია B და მეორე ეტაპის არჩევა (მხოლოდ ერთხელ!)
+async def setup_category_and_stage(page):
+    try:
+        print("⚙️ ვაყენებ კატეგორია B-ს და მეორე ეტაპს...")
+        # დაველოდოთ რომ გვერდი მზად იყოს წესების მერე
+        await asyncio.sleep(2)
+        
+        cat_drop = page.locator("mat-select").first
+        await human_move_and_click(page, cat_drop, "კატეგორიის მენიუ")
+        await asyncio.sleep(1.5)
+        
+        b_option = page.locator('mat-option:has-text("B")').first
+        await b_option.wait_for(state="visible", timeout=5000)
+        await human_move_and_click(page, b_option, "კატეგორია B")
+        await asyncio.sleep(2)
+        
+        stage_2 = page.locator('text=მეორე ეტაპი').first
+        if await stage_2.is_visible():
+            await human_move_and_click(page, stage_2, "მეორე ეტაპი")
+            await asyncio.sleep(2)
+            
+        print("✅ ყველაფერი გასწორდა. ვიწყებ ძებნას.")
+        return True
+    except Exception as e:
+        print(f"⚠️ პარამეტრების დაყენებისას მოხდა შეცდომა: {e}")
+        return False
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Keep-alive: ყოველ 12 წუთში
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Keep-alive: ყოველ 12 წუთში
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -320,28 +339,41 @@ async def keepalive_agree_click(page):
     if now - last_agree_click_time < AGREE_INTERVAL_SECONDS:
         return False, False
 
+
     msg = "🔄 Keep-alive: ვახლებ სესიას და ვაჭერ 'ვეთანხმები'-ს..."
     print(msg)
     send_log_msg(msg)
     try:
-        # თუ ვუკვე არსებულ გვერდზე ვართ, ზედმეტი reload არ გვინდა
         current_url = (page.url or "").lower()
-        if "drivinglicensepracticalexams" not in current_url and "my.sa.gov.ge" not in current_url:
+        if "drivinglicensepracticalexams" not in current_url:
             ok = await safe_goto(page, 'https://my.sa.gov.ge')
-        else:
-            ok = True
-        if not ok:
-            # timeout-ის დროს ნუ შევაჩენ მიმს ცვლილებს; შემდეგ ციკლში ხელახალი ცდის
-            last_agree_click_time = time.time()
-            return True, False
-        await sleep_between(3, 5)
+            if not ok:
+                last_agree_click_time = time.time()
+                return True, False
+            await sleep_between(3, 5)
 
-        if await confirm_logged_out(page):
-            msg = "🔒 Keep-alive: სესია გავიდა navigate-ის შემდეგ!"
-            print(msg)
-            send_log_msg(msg, force=True)
-            last_agree_click_time = time.time()
-            return True, True
+        practic_btn = page.locator('text=პრაქტიკული გამოცდა').first
+        if await practic_btn.is_visible():
+            await human_move_and_click(page, practic_btn)
+            await sleep_between(3, 5)
+
+        # 👈 აი აქ იყო შეცდომა, ახლა გასწორებულია:
+        try:
+            agreed = await handle_agreement(page)
+            if agreed:
+                print("✅ Keep-alive: სესია განახლებულია.")
+            else:
+                print("ℹ️ Keep-alive: 'ვეთანხმები' ვერ დაჭირდა.")
+        except Exception as e:
+            print(f"⚠️ Keep-alive შეცდომა: {e}")
+
+        last_agree_click_time = time.time()
+        return True, False
+
+    except Exception as e:
+        print(f"❌ Keep-alive კატასტროფული შეცდომა: {e}")
+        last_agree_click_time = time.time()
+        return True, False
 
         await human_scroll(page)
 
@@ -482,17 +514,45 @@ async def confirm_logged_out(page, checks=3, delay=1.2):
 
 
 async def wait_for_manual_login(page):
-    msg = "🔐 ავტორიზაცია საჭიროა — გაიარე login/SMS კოდი და ბოტი ავტომატურად გააგრძელებს."
+    msg = "🔐 ავტორიზაცია საჭიროა! ბრაუზერი ღიაა, გაიარე login/SMS კოდი. ბოტი თავისით გააგრძელებს, როგორც კი შეხვალ."
     print(msg)
     send_log_msg(msg, force=True)
+    
     while True:
-        await asyncio.sleep(5)
-        if not await confirm_logged_out(page):
-            ok_msg = "✅ ავტორიზაცია დასრულდა — ვაგრძელებ სკანირებას."
-            print(ok_msg)
-            send_log_msg(ok_msg, force=True)
-            await asyncio.sleep(1.5)
-            return
+        try:
+            # თუ გვერდი დახურულია, ეს ფუნქცია შეჩერდება და run_checker გადატვირთავს
+            if page.is_closed():
+                return
+                
+            await asyncio.sleep(5)
+            # ვამოწმებთ, ისევ გამოსულია თუ არა
+            is_out = await confirm_logged_out(page)
+            if not is_out:
+                ok_msg = "✅ ავტორიზაცია დაფიქსირდა! ვაგრძელებ მუშაობას..."
+                print(ok_msg)
+                send_log_msg(ok_msg, force=True)
+                await asyncio.sleep(2)
+                return
+        except:
+            return # შეცდომისას გამოვდივართ, რომ run_checker-მა გადატვირთოს
+            
+async def inject_click_visualizer(page):
+    await page.add_init_script("""
+        window.addEventListener('mousedown', e => {
+            const div = document.createElement('div');
+            div.style.position = 'fixed';
+            div.style.left = e.clientX - 10 + 'px';
+            div.style.top = e.clientY - 10 + 'px';
+            div.style.width = '20px';
+            div.style.height = '20px';
+            div.style.borderRadius = '50%';
+            div.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+            div.style.zIndex = '999999';
+            div.style.pointerEvents = 'none';
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 600);
+        }, true);
+    """)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -502,6 +562,9 @@ async def wait_for_manual_login(page):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async def relaunch_browser_context(playwright, user_data_dir):
     print("🌐 ვტვირთავ ბრაუზერს (persistent session)...")
+
+    # დარწმუნდით, რომ user_data დირექტორია არსებობს, შენდება სეიშენები.
+    os.makedirs(user_data_dir, exist_ok=True)
 
     is_server = (os.name != "nt") and (not os.environ.get("DISPLAY"))
     headless = is_server
@@ -629,12 +692,12 @@ def get_cycle_wait_seconds(cycle_count):
     if EXACT_TIMING:
         return FIXED_CYCLE_WAIT_SECONDS
 
+    # ღამის რეჟიმში (02:00 - 08:00) ისევ დავტოვოთ გრძელი პაუზა უსაფრთხოებისთვის
     if is_night_maintenance():
-        return random.randint(120, 180)
+        return random.randint(150, 300)
 
-    pattern = [20, 120, 180]
-    return pattern[(cycle_count - 1) % len(pattern)]
-
+    # დღის რეჟიმში: 25-დან 45 წამამდე პაუზა (იდეალურია)
+    return random.randint(25, 45)
 
 def is_night_maintenance():
     h = datetime.datetime.now().hour
@@ -644,11 +707,17 @@ def is_night_maintenance():
 async def is_block_or_captcha(page):
     try:
         url = (page.url or "").lower()
-        content = (await page.content()).lower()
-        block_keywords = ["captcha", "blocked", "access denied", "do not match", "error"]
-        if any(k in url for k in ["captcha", "blocked", "access denied"]):
+        # ვამოწმებთ მხოლოდ URL-ს, სადაც წერია ხოლმე captcha ან blocked
+        if any(k in url for k in ["captcha", "blocked", "access-denied"]):
             return True
-        if any(k in content for k in block_keywords):
+            
+        # ვამოწმებთ მხოლოდ ხილულ ტექსტს და არა მთლიან კოდს
+        content = await page.inner_text("body")
+        content = content.lower()
+        
+        # ვეძებთ კონკრეტულ ფრაზებს, რომლებსაც საიტი გვიწერს ბლოკისას
+        bad_phrases = ["your ip is blocked", "access denied", "too many requests"]
+        if any(p in content for p in bad_phrases):
             return True
     except:
         pass
@@ -799,7 +868,7 @@ def send_user_reminder():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async def run_checker():
     async with async_playwright() as p:
-        print("🌐 ბრაუზერი იხსნება...")
+        print("🌐 Opening Browser...")
         user_data_dir = os.path.join(os.getcwd(), "user_data")
         context, page = await relaunch_browser_context(p, user_data_dir)
         await safe_goto(page, 'https://my.sa.gov.ge')
@@ -810,141 +879,134 @@ async def run_checker():
 
         while True:
             try:
-                if await confirm_logged_out(page):
+                # თუ გაშვებული page შემთხვევით დაიხურა, თავიდან ვიწყებთ აღდგენას
+                if page.is_closed():
+                    print("🔁 Page დახურულია, რე-ლოგინ/რესეტზე ვცდები...")
+                    try:
+                        await context.close()
+                    except:
+                        pass
+                    context, page = await relaunch_browser_context(p, user_data_dir)
+                    await safe_goto(page, 'https://my.sa.gov.ge')
+                    need_navigation = True
+                    continue
+
+                # 1. 🔍 სესიის პირველადი შემოწმება - თუ Logout-ია, მაშინვე ვჩერდებით
+                if await is_logged_out(page):
+                    print("🔒  Session Expired!")
                     await wait_for_manual_login(page)
                     need_navigation = True
                     continue
 
+
+                # ━━━ 2. ბლოკის ან კაპტჩის შემოწმება ━━━
                 if await is_block_or_captcha(page):
-                    msg = "⚠️ ბლოკი/კაფტჩა გამოვლინდა, ველოდებით და ვბრუნდებით."
-                    print(msg)
-                    send_log_msg(msg, force=True)
+                    msg = "⚠️ ბლოკი/კაფტჩა გამოვლინდა, ველოდებით..."
+                    print(msg); send_log_msg(msg, force=True)
                     need_navigation = True
                     await asyncio.sleep(random.uniform(45, 80))
                     continue
 
+                # ━━━ 3. ღამის რეჟიმი (02:00-08:00) ━━━
                 if is_night_maintenance():
-                    msg = "🌙 ღამის რეჟიმი (02:00-08:00): მხოლოდ მსუბუქი რეფრეში და keepalive"
-                    print(msg)
-                    send_log_msg(msg)
+                    print("🌙 ღამის რეჟიმი: ბოტი ისვენებს...")
                     if KEEPALIVE_ENABLED:
                         await keepalive_agree_click(page)
-                    if "drivinglicensepracticalexams" not in page.url.lower():
-                        await safe_goto(page, 'https://my.sa.gov.ge')
                     await asyncio.sleep(random.uniform(120, 180))
                     continue
 
-                # ━━━ 1. Keep-alive (ყოველ 12 წუთში) ━━━
+                # ━━━ 4. Keep-alive (ყოველ 12 წუთში) ━━━
                 if KEEPALIVE_ENABLED:
-                    keepalive_triggered, keepalive_logged_out = await keepalive_agree_click(page)
-                    if keepalive_logged_out:
-                        # logout-ისას ნუ “ვაწვებით” — ცოტა ხანი დავაცადოთ და მერე ხელით login
-                        await asyncio.sleep(random.uniform(LOGOUT_BACKOFF_SECONDS_MIN, LOGOUT_BACKOFF_SECONDS_MAX))
+                    keep_trig, keep_out = await keepalive_agree_click(page)
+                    if keep_out:
                         await wait_for_manual_login(page)
                         need_navigation = True
                         continue
-                    if keepalive_triggered:
+                    if keep_trig:
                         need_navigation = True
 
-                # დღიური თავდაპირველი B-შუტის და ეკრანის მომზადება
-                if not need_navigation:
-                    await ensure_session_ready(page)
-
-                # ━━━ 2. Config წამოღება ━━━
-                autobook_cfg = get_autobook_config()
-                priority_cities = autobook_cfg.get("target_cities", ["რუსთავი", "გორი", "თელავი"])
-                all_requested = list(get_cities_to_check())
-
-                if not all_requested:
-                    print("😴 არცერთი ქალაქი არ არის არჩეული. ველოდები 20 წამი...")
-                    await asyncio.sleep(20)
-                    continue
-
-                # ━━━ 3. პრიორიტეტული სია ━━━
-                priority_cities = autobook_cfg.get("target_cities", []) or []
-                target_only = autobook_cfg.get("target_only", False)
-
-                # თუ autobook აქტივირებული და ცარიელია city-list, ავიღოთ users.json-ის პირველი ქალაქი
-                if autobook_cfg.get("enabled") and not priority_cities:
-                    if all_requested:
-                        priority_cities = [all_requested[0]]
-
-                # მხოლოდ იმ ქალაქების შერჩევა, რომლებიც არსებობენ რეალურად
-                priority_cities = [c for c in priority_cities if c in all_requested]
-
-                if target_only:
-                    check_list = [c for c in priority_cities if c in all_requested]
-                else:
-                    check_list = build_check_sequence(priority_cities, all_requested)
-
-                # თუ არაფერი დარჩა (და ლისტი ცარიელია), fallback all_requested
-                if not check_list:
-                    check_list = list(all_requested)
-
-                print(f"📡 ვიწყებ სკანირებას ({len(check_list)} წერტილი). პრიორიტეტი: {priority_cities}")
-
-                # ━━━ 4. ნავიგაცია ━━━
-                if "DrivingLicensePracticalExams" not in page.url and not need_navigation:
-                    need_navigation = True
-
-                cycle_count += 1
-
-                if await confirm_logged_out(page):
-                    # logout-ზე სწრაფი retry ხშირად აუარესებს მდგომარეობას
-                    await asyncio.sleep(random.uniform(LOGOUT_BACKOFF_SECONDS_MIN, LOGOUT_BACKOFF_SECONDS_MAX))
-                    await wait_for_manual_login(page)
-                    need_navigation = True
-                    continue
-
+               # ━━━ 5. ნავიგაცია და მომზადება ━━━
                 if need_navigation:
-                    ok = await safe_goto(page, 'https://my.sa.gov.ge')
-                    if not ok:
-                        await asyncio.sleep(8)
-                        continue
-                    await asyncio.sleep(4)
-                    await human_scroll(page)
-
+                    print("🚀 ვაკეთებ სესიის სრულ გაცოცხლებას (Hard Refresh)...")
+                    # გადავდივართ მთავარზე
+                    await page.goto('https://my.sa.gov.ge', wait_until="domcontentloaded")
+                    await asyncio.sleep(3)
+                    
+                    # შევდივართ პრაქტიკულებზე
                     practic_btn = page.locator('text=პრაქტიკული გამოცდა').first
-                    clicked_practic = await robust_click(page, practic_btn, label="პრაქტიკული გამოცდა")
-                    if not clicked_practic:
-                        msg = "⚠️ 'პრაქტიკული გამოცდა' ვერ დაიჭირა, ვცდი თავიდან შემდეგ ციკლში"
-                        print(msg)
-                        send_log_msg(msg)
-                        need_navigation = True
+                    await human_move_and_click(page, practic_btn, "პრაქტიკული გამოცდა")
+                    await asyncio.sleep(3)
+                    
+                    # წესებზე დათანხმება
+                    if await handle_agreement(page):
+                        await setup_category_and_stage(page)
+                        need_navigation = False
+                        last_agree_click_time = time.time() # 👈 ტაიმერი აქ ნულდება
+                        print("✅ სესია განახლებულია 7 წუთით!")
+                    else:
+                        print("⚠️ რეფრეში ვერ მოხერხდა, ვცდი თავიდან...")
                         continue
-                    await asyncio.sleep(4)
 
-                    try:
-                        await scroll_to_bottom_and_agree(page)
-                    except:
-                        pass
+                # ❗ დამატებითი დაზღვევა: თუ წესები მაინც ამოხტა (თუნდაც need_navigation False იყოს)
+                modal_visible = await page.locator(".mat-mdc-dialog-content, mat-dialog-content").first.is_visible()
+                if modal_visible:
+                    print("🚨 წესების ფანჯარა მოულოდნელად გამოჩნდა! ვასწორებ...")
+                    await handle_agreement(page)
+                    await setup_category_and_stage(page)
 
-                    await ensure_session_ready(page)
-                    need_navigation = False
+                # ━━━ 6. ქალაქების სიის მომზადება ━━━
+                autobook_cfg = get_autobook_config()
+                all_requested = list(get_cities_to_check())
+                priority_cities = autobook_cfg.get("target_cities", ["თელავი", "რუსთავი"])
+                
+                check_list = build_check_sequence(priority_cities, all_requested)
+                if not check_list: check_list = list(all_requested)
 
-                # ━━━ 5. ქალაქების შემოწმება ━━━
+                print(f"📡 სკანირება: {priority_cities} + სხვები")
+
+                # ━━━ 7. ქალაქების შემოწმება ━━━
                 current_available_cities = set()
 
+                # ━━━ 5. ქალაქების შემოწმება ━━━
                 for city in check_list:
-                    city_msg = f"🔎 ვამოწმებ: {city}"
-                    print(city_msg)
-                    if DEBUG_LOG_EVERY_CITY:
-                        send_log_msg(city_msg)
+                    # ❗ აი ეს დაიცავს სესიას სიკვდილისგან:
+                    if time.time() - last_agree_click_time > AGREE_INTERVAL_SECONDS:
+                        print(f"🚨 9 წუთი გავიდა! ვაჩერებ ძებნას და ვაახლებ სესიას...")
+                        need_navigation = True
+                        break # წყვეტს ძებნას და მიდის ზემოთ რეფრეშზ
 
-                    await random_idle(page)
-                    await anti_bot_break(page)
-                    if random.random() < 0.35:
-                        await human_scroll(page)
-                    await sleep_between(0.5, 1.2)
+                    # შემოწმება თუ მაინც ამოაგდო (უსაფრთხოებისთვის)
+                    if await is_logged_out(page):
+                        need_navigation = True
+                        break 
 
-                    city_dropdown = await wait_city_dropdown(page, timeout=10000)
+                    print(f"🔎 Checking: {city}")
+
+                    dropdowns = page.locator("mat-select")
+                    city_dropdown = None
+                    
+                    # ვეძებთ მენიუს მაქსიმუმ 5 წამი
+                    try:
+                        count = await dropdowns.count()
+                        for k in range(count):
+                            pl = await dropdowns.nth(k).get_attribute("placeholder")
+                            if pl and "საგამოცდო ცენტრი" in pl:
+                                city_dropdown = dropdowns.nth(k); break
+                    except: pass
 
                     if not city_dropdown:
-                        msg = "⚠️ მენიუ დაიკარგა! ვაკეთებ რეფრეშს..."
-                        print(msg)
-                        send_log_msg(msg)
-                        need_navigation = True
-                        break
+                        # ❗ თუ მენიუ ვერ იპოვა, ე.ი. სესია მოკვდა
+                        print("⚠️ მენიუ ვერ მოიძებნა! ვამოწმებ სესიას...")
+                        if await is_logged_out(page):
+                            print("🔒 სესია ნამდვილად გაწყდა. გადავდივარ აღდგენაზე.")
+                            need_navigation = True
+                            break
+                        else:
+                            # თუ სესია ცოცხალია, უბრალოდ გვერდი გაიჭედა
+                            print("🔄 გვერდი გაიჭედა, ვაკეთებ რეფრეშს...")
+                            need_navigation = True
+                            break
+
 
                     clicked_dropdown = await robust_click(page, city_dropdown, label="ქალაქის dropdown")
                     if not clicked_dropdown:
@@ -1006,32 +1068,32 @@ async def run_checker():
                     else:
                         await close_overlays(page)
 
-                # ━━━ 6. ციკლის დასრულება ━━━
+               # ━━━ 6. ციკლის დასრულება ━━━
                 was_available_cities = current_available_cities
                 send_status_report(list(all_requested), list(current_available_cities))
-                send_user_reminder()
-
+                
                 wait = get_cycle_wait_seconds(cycle_count)
-                next_keepalive = max(0, int(AGREE_INTERVAL_SECONDS - (time.time() - last_agree_click_time)))
+                
+                # რეფრეშამდე დარჩენილი დროის გამოთვლა
+                time_passed = time.time() - last_agree_click_time
+                next_keepalive = max(0, int(AGREE_INTERVAL_SECONDS - time_passed))
+                
                 cycle_msg = (
-                    f"⌛ ციკლი #{cycle_count} დასრულდა. "
+                    f"⌛ Cycle #{cycle_count} finished. "
                     f"შემდეგი შემოწმება {wait} წამში... "
-                    f"(keep-alive კიდევ {next_keepalive // 60}:{next_keepalive % 60:02d}-ში)"
+                    f"(რეფრეში დარჩა {next_keepalive // 60}:{next_keepalive % 60:02d})"
                 )
                 print(cycle_msg + "\n")
                 send_log_msg(cycle_msg)
 
-                # ნაკლები ნავიგაცია = ნაკლები logout/ფლაკი
-                need_navigation = (cycle_count % max(4, NAV_EVERY_N_CYCLES) == 0)
-
+                need_navigation = False 
                 await asyncio.sleep(wait)
 
             except Exception as e:
-                msg = f"❌ შეცდომა: {e}"
+                msg = f"❌ შეცდომა ციკლში: {e}"
                 print(msg)
                 send_log_msg(msg, force=True)
                 await asyncio.sleep(15)
-
 
 if __name__ == "__main__":
     asyncio.run(run_checker())
