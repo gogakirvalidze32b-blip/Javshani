@@ -324,9 +324,14 @@ async def keepalive_agree_click(page):
     print(msg)
     send_log_msg(msg)
     try:
-        ok = await safe_goto(page, 'https://my.sa.gov.ge')
+        # თუ ვუკვე არსებულ გვერდზე ვართ, ზედმეტი reload არ გვინდა
+        current_url = (page.url or "").lower()
+        if "drivinglicensepracticalexams" not in current_url and "my.sa.gov.ge" not in current_url:
+            ok = await safe_goto(page, 'https://my.sa.gov.ge')
+        else:
+            ok = True
         if not ok:
-            # timeout-ის დროს ნუ შევაჩერებთ მთლიან ლუპს; შემდეგ ციკლში ხელახლა ცდის
+            # timeout-ის დროს ნუ შევაჩენ მიმს ცვლილებს; შემდეგ ციკლში ხელახალი ცდის
             last_agree_click_time = time.time()
             return True, False
         await sleep_between(3, 5)
@@ -419,6 +424,14 @@ async def ensure_b_and_second_stage(page, force=False):
                 await human_pause()
                 await human_move_and_click(page, stage_2)
                 await sleep_between(1.2, 2.5)
+    except:
+        pass
+
+
+async def ensure_session_ready(page):
+    try:
+        await ensure_b_and_second_stage(page, force=True)
+        await scroll_to_bottom_and_agree(page)
     except:
         pass
 
@@ -521,6 +534,7 @@ async def relaunch_browser_context(playwright, user_data_dir):
 
     launch_kwargs = dict(
         headless=headless,
+        slow_mo=80,
         viewport={'width': 1280, 'height': 800},
         user_agent=(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -559,6 +573,7 @@ def get_autobook_config():
             "enabled": False,
             "target_user_id": "",
             "target_cities": ["რუსთავი", "გორი", "თელავი"],
+            "target_only": False,
             "button_text": "დაჯავშნა",
             "stop_after_booking": True
         }
@@ -588,6 +603,56 @@ def get_cities_to_check():
         except Exception as e:
             print(f"შეცდომა ფაილის წაკითხვისას: {e}")
     return cities
+
+
+def build_check_sequence(priority_cities, all_cities):
+    """მოცემული პრიორიტეტული ქალაქების იატლი ორიენტირებული გამეორება და დანარჩენების ჩასმა."""
+    if not all_cities:
+        return []
+
+    priority = [c for c in priority_cities if c in all_cities]
+    others = [c for c in all_cities if c not in priority]
+    if not priority:
+        return list(all_cities)
+
+    sequence = []
+    for idx in range(max(len(others), 1)):
+        for p in priority:
+            sequence.append(p)
+        if idx < len(others):
+            sequence.append(others[idx])
+
+    return sequence
+
+
+def get_cycle_wait_seconds(cycle_count):
+    if EXACT_TIMING:
+        return FIXED_CYCLE_WAIT_SECONDS
+
+    if is_night_maintenance():
+        return random.randint(120, 180)
+
+    pattern = [20, 120, 180]
+    return pattern[(cycle_count - 1) % len(pattern)]
+
+
+def is_night_maintenance():
+    h = datetime.datetime.now().hour
+    return 2 <= h < 8
+
+
+async def is_block_or_captcha(page):
+    try:
+        url = (page.url or "").lower()
+        content = (await page.content()).lower()
+        block_keywords = ["captcha", "blocked", "access denied", "do not match", "error"]
+        if any(k in url for k in ["captcha", "blocked", "access denied"]):
+            return True
+        if any(k in content for k in block_keywords):
+            return True
+    except:
+        pass
+    return False
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -750,6 +815,25 @@ async def run_checker():
                     need_navigation = True
                     continue
 
+                if await is_block_or_captcha(page):
+                    msg = "⚠️ ბლოკი/კაფტჩა გამოვლინდა, ველოდებით და ვბრუნდებით."
+                    print(msg)
+                    send_log_msg(msg, force=True)
+                    need_navigation = True
+                    await asyncio.sleep(random.uniform(45, 80))
+                    continue
+
+                if is_night_maintenance():
+                    msg = "🌙 ღამის რეჟიმი (02:00-08:00): მხოლოდ მსუბუქი რეფრეში და keepalive"
+                    print(msg)
+                    send_log_msg(msg)
+                    if KEEPALIVE_ENABLED:
+                        await keepalive_agree_click(page)
+                    if "drivinglicensepracticalexams" not in page.url.lower():
+                        await safe_goto(page, 'https://my.sa.gov.ge')
+                    await asyncio.sleep(random.uniform(120, 180))
+                    continue
+
                 # ━━━ 1. Keep-alive (ყოველ 12 წუთში) ━━━
                 if KEEPALIVE_ENABLED:
                     keepalive_triggered, keepalive_logged_out = await keepalive_agree_click(page)
@@ -762,6 +846,10 @@ async def run_checker():
                     if keepalive_triggered:
                         need_navigation = True
 
+                # დღიური თავდაპირველი B-შუტის და ეკრანის მომზადება
+                if not need_navigation:
+                    await ensure_session_ready(page)
+
                 # ━━━ 2. Config წამოღება ━━━
                 autobook_cfg = get_autobook_config()
                 priority_cities = autobook_cfg.get("target_cities", ["რუსთავი", "გორი", "თელავი"])
@@ -773,18 +861,25 @@ async def run_checker():
                     continue
 
                 # ━━━ 3. პრიორიტეტული სია ━━━
-                others = [c for c in all_requested if c not in priority_cities]
-                random.shuffle(others)
-                check_list = []
-                if priority_cities:
-                    if others:
-                        for other_city in others:
-                            check_list.extend(priority_cities)
-                            check_list.append(other_city)
-                    else:
-                        check_list = list(priority_cities)
+                priority_cities = autobook_cfg.get("target_cities", []) or []
+                target_only = autobook_cfg.get("target_only", False)
+
+                # თუ autobook აქტივირებული და ცარიელია city-list, ავიღოთ users.json-ის პირველი ქალაქი
+                if autobook_cfg.get("enabled") and not priority_cities:
+                    if all_requested:
+                        priority_cities = [all_requested[0]]
+
+                # მხოლოდ იმ ქალაქების შერჩევა, რომლებიც არსებობენ რეალურად
+                priority_cities = [c for c in priority_cities if c in all_requested]
+
+                if target_only:
+                    check_list = [c for c in priority_cities if c in all_requested]
                 else:
-                    check_list = all_requested
+                    check_list = build_check_sequence(priority_cities, all_requested)
+
+                # თუ არაფერი დარჩა (და ლისტი ცარიელია), fallback all_requested
+                if not check_list:
+                    check_list = list(all_requested)
 
                 print(f"📡 ვიწყებ სკანირებას ({len(check_list)} წერტილი). პრიორიტეტი: {priority_cities}")
 
@@ -824,7 +919,7 @@ async def run_checker():
                     except:
                         pass
 
-                    await ensure_b_and_second_stage(page, force=True)
+                    await ensure_session_ready(page)
                     need_navigation = False
 
                 # ━━━ 5. ქალაქების შემოწმება ━━━
@@ -835,8 +930,12 @@ async def run_checker():
                     print(city_msg)
                     if DEBUG_LOG_EVERY_CITY:
                         send_log_msg(city_msg)
+
                     await random_idle(page)
                     await anti_bot_break(page)
+                    if random.random() < 0.35:
+                        await human_scroll(page)
+                    await sleep_between(0.5, 1.2)
 
                     city_dropdown = await wait_city_dropdown(page, timeout=10000)
 
@@ -863,7 +962,11 @@ async def run_checker():
                     if not clicked_option:
                         await close_overlays(page)
                         continue
-                    await asyncio.sleep(1.2)
+
+                    await sleep_between(1.8, 2.4)
+                    if random.random() < 0.2:
+                        await human_scroll(page)
+                    await sleep_between(0.7, 1.2)
 
                     available_days = page.locator('mat-calendar-body-cell[aria-disabled="false"]')
                     if await available_days.count() > 0:
@@ -908,7 +1011,7 @@ async def run_checker():
                 send_status_report(list(all_requested), list(current_available_cities))
                 send_user_reminder()
 
-                wait = FIXED_CYCLE_WAIT_SECONDS if EXACT_TIMING else random.randint(30, 55)
+                wait = get_cycle_wait_seconds(cycle_count)
                 next_keepalive = max(0, int(AGREE_INTERVAL_SECONDS - (time.time() - last_agree_click_time)))
                 cycle_msg = (
                     f"⌛ ციკლი #{cycle_count} დასრულდა. "

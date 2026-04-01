@@ -1,3 +1,2 @@
-2026/04/01-17:12:12.878 cdc Reusing MANIFEST C:\Users\For Home\Desktop\Javshani-main\user_data\Default\Site Characteristics Database/MANIFEST-000001
-2026/04/01-17:12:12.904 cdc Recovering log #3
-2026/04/01-17:12:12.904 cdc Reusing old log C:\Users\For Home\Desktop\Javshani-main\user_data\Default\Site Characteristics Database/000003.log 
+2026/04/01-18:05:47.032 209c Creating DB C:\Users\For Home\Desktop\Javshani-main\user_data\Default\Site Characteristics Database since it was missing.
+2026/04/01-18:05:47.069 209c Reusing MANIFEST C:\Users\For Home\Desktop\Javshani-main\user_data\Default\Site Characteristics Database/MANIFEST-000001
