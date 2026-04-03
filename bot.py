@@ -7,10 +7,11 @@ import time
 TOKEN = "8043569123:AAHv3MCItdKS2x7qj24wI3wUyuKlPynLvsg"
 ADMIN_ID = 8330284515
 GROUP_ID = -1003768013258
+COMMUNITY_LINK = "https://t.me/+-ENrv7S2bpM4YTMy"
 FILE_NAME = "users.json"
 AUTOBOOK_FILE = "autobook.json"
 TOPICS_FILE = "topics.json"
-NOTIFIED_FILE = "notified.json"  # ← აქ
+NOTIFIED_FILE = "notified.json"
 bot = telebot.TeleBot(TOKEN)
 
 admin_broadcast_state = {}
@@ -81,6 +82,43 @@ def get_keyboard(user_cities):
         callback_data="save_settings"
     ))
     return markup
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# /start_chat
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@bot.message_handler(commands=['start_chat'])
+def start_chat(message):
+    if message.chat.type != "private":
+        return
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(
+        text="🗣 შემოგვიერთდი საკომუნიკაციო ჩათში",
+        callback_data="join_community"
+    ))
+    bot.send_message(
+        message.chat.id,
+        "👥 <b>საკომუნიკაციო ჩათი</b>\n\n"
+        "შემოგვიერთდი ჩვენს ჯგუფში სადაც შეგიძლია სხვა მომხმარებლებთან დაკავშირება და გამოცდილების გაზიარება 👇",
+        parse_mode="HTML",
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "join_community")
+def join_community(call):
+    chat_id = call.message.chat.id
+    # ვაგზავნით ლინკს პირად შეტყობინებაში
+    bot.send_message(
+        chat_id,
+        f"👉 {COMMUNITY_LINK}",
+    )
+    # ვცვლით ღილაკიან შეტყობინებას
+    bot.edit_message_text(
+        "🗣 <b>კეთილი იყოს თქვენი მობრძანება საკომუნიკაციო ჩათში!</b>",
+        chat_id,
+        call.message.message_id,
+        parse_mode="HTML"
+    )
+    bot.answer_callback_query(call.id)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # /broadcast
@@ -211,9 +249,11 @@ def start(message):
         return
     data = load_data()
     chat_id = str(message.chat.id)
-    if chat_id not in data:
+    is_new = chat_id not in data
+    if is_new:
         data[chat_id] = []
         save_data(data)
+
     bot.send_message(
         chat_id,
         "🏛 <b>მოგესალმებით!</b>\n\n"
@@ -222,6 +262,21 @@ def start(message):
         parse_mode="HTML",
         reply_markup=get_keyboard(data[chat_id])
     )
+
+    # ახალ იუზერს ავტომატურად უგზავნის ჯგუფის ღილაკს
+    if is_new:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(
+            text="🗣 შემოგვიერთდი საკომუნიკაციო ჩათში",
+            callback_data="join_community"
+        ))
+        bot.send_message(
+            chat_id,
+            "👥 <b>საკომუნიკაციო ჩათი</b>\n\n"
+            "შემოგვიერთდი ჩვენს ჯგუფში სადაც შეგიძლია სხვა მომხმარებლებთან დაკავშირება 👇",
+            parse_mode="HTML",
+            reply_markup=markup
+        )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("toggle:"))
 def toggle(call):
@@ -459,7 +514,6 @@ def startbot_cmd(message):
     search_enabled = True
 
     data = load_data()
-
     autobook_config = {}
     if os.path.exists(AUTOBOOK_FILE):
         with open(AUTOBOOK_FILE, 'r', encoding='utf-8') as f:
@@ -472,9 +526,7 @@ def startbot_cmd(message):
     for chat_id, cities in data.items():
         if not cities:
             continue
-
         cities_fmt = "\n".join(f"  • <code>{c}</code>" for c in cities)
-
         if chat_id == target_user_id and autobook_config.get("enabled"):
             msg = (
                 "🤖 <b>ავტო-ჯავშნის ძიება დაიწყო!</b>\n"
@@ -491,7 +543,6 @@ def startbot_cmd(message):
                 "────────────────────\n\n"
                 "🔔 <b>ადგილის გამოჩენისთანავე შეგატყობინებთ!</b>"
             )
-
         try:
             bot.send_message(chat_id, msg, parse_mode="HTML")
             if chat_id not in notified:
@@ -522,14 +573,15 @@ def stopbot_cmd(message):
         "გასააქტიურებლად: <code>/startbot</code>",
         parse_mode="HTML"
     )
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ყოველ საათში შეტყობინება
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 import threading
 
 def hourly_reminder():
     while True:
-        time.sleep(3600)  # 1 საათი
+        time.sleep(3600)
         if not search_enabled:
             continue
         data = load_data()
@@ -568,11 +620,10 @@ def hourly_reminder():
             except:
                 pass
 
-# ბოტის გაშვებასთან ერთად thread-ი დაიწყოს
 threading.Thread(target=hourly_reminder, daemon=True).start()
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# /dm
+# /dm და /msg
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @bot.message_handler(commands=['dm'])
 def dm_user(message):
@@ -596,11 +647,9 @@ def msg_user(message):
         return
     args = message.text.split(None, 2)
     if len(args) < 3:
-        bot.send_message(
-            message.chat.id,
+        bot.send_message(message.chat.id,
             "გამოიყენე ასე:\n<code>/msg USER_ID შეტყობინება</code>",
-            parse_mode="HTML"
-        )
+            parse_mode="HTML")
         return
     try:
         bot.send_message(args[1], args[2], parse_mode="HTML")
@@ -619,7 +668,6 @@ def autobook_request(message):
     if user.last_name:
         name += f" {user.last_name}"
     username = f" (@{user.username})" if user.username else ""
-
     bot.send_message(
         ADMIN_ID,
         f"🔔 <b>ავტო-დაჯავშნის მოთხოვნა!</b>\n\n"
@@ -628,7 +676,6 @@ def autobook_request(message):
         f"იუზერს სურს ავტომატური დაჯავშნა.",
         parse_mode="HTML"
     )
-
     bot.send_message(
         message.chat.id,
         "✅ <b>თქვენი მოთხოვნა მიღებულია!</b>\n\n"
@@ -654,11 +701,7 @@ def forward_to_topic(message):
 
     if topic_id:
         try:
-            bot.send_message(
-                GROUP_ID,
-                f"💬 {message.text}",
-                message_thread_id=topic_id
-            )
+            bot.send_message(GROUP_ID, f"💬 {message.text}", message_thread_id=topic_id)
         except telebot.apihelper.ApiTelegramException as e:
             if "message thread not found" in str(e).lower():
                 topics = load_topics()

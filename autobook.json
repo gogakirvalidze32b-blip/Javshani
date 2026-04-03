@@ -1,10 +1,13 @@
 {
     "enabled": true,
-    "target_user_id": "8789714047",
-    "target_cities": [
-        "ზუგდიდი"
-    ],
+    "target_user_id": "8174631113",
+    "target_cities": ["თელავი"],
     "target_only": false,
+    "target_prices": ["90", "250"],
+    "target_dates": [],
+    "target_months": ["04"],
+    "target_hours": [],
     "button_text": "დაჯავშნა",
     "stop_after_booking": true
 }
+
